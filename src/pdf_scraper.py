@@ -186,20 +186,34 @@ def create_pdf(article_dict, output_folder):
     pdf.ln(10)
     
     # Add abstract
-    pdf.set_font("Arial", 'B', size=14)
-    pdf.cell(0, 10, txt="Abstract:", ln=1)
-    pdf.set_font("Arial", size=12)
-    pdf.multi_cell(0, 10, txt=article_dict['abstract'])
-    pdf.ln(10)
+    if article_dict['abstract'] is not None:
+        pdf.set_font("Arial", 'B', size=14)
+        pdf.cell(0, 10, txt="Abstract:", ln=1)
+        pdf.set_font("Arial", size=12)
+        pdf.multi_cell(0, 10, txt=article_dict['abstract'])
+        pdf.ln(10)
+    else:
+        pdf.set_font("Arial", 'B', size=14)
+        pdf.cell(0, 10, txt="Abstract:", ln=1)
+        pdf.set_font("Arial", size=12)
+        pdf.multi_cell(0, 10, txt='Not Available')
+        pdf.ln(10)
     
     # # Add full text if available
-    # if article_dict['has_full_text'] == "yes":
+    # if article_dict['has_full_text'] == "yes" and article_dict['has_full_text'] is not None:
     #     pdf.add_page()
     #     pdf.set_font("Arial", 'B', size=14)
     #     pdf.cell(0, 10, txt="Full Text:", ln=1)
     #     pdf.set_font("Arial", size=12)
     #     pdf.multi_cell(0, 10, txt=article_dict['full_text'])
+    # else:
+    #     pdf.add_page()
+    #     pdf.set_font("Arial", 'B', size=14)
+    #     pdf.cell(0, 10, txt="Full Text:", ln=1)
+    #     pdf.set_font("Arial", size=12)
+    #     pdf.multi_cell(0, 10, txt='Not Available')
     
+
     pdf.output(filepath)
     print(f"Created PDF for article {article_dict['pmid']}")
 
@@ -284,100 +298,95 @@ for article in articles:
     if title == 'TITLE':
         continue
 
-    try:
-        search_query = str(title) + '[Title]'# AND ' + str(author_query) + '[Author]' # + ' AND medline[sb] AND "open access"[filter]'
+    search_query = str(title) + '[Title]'# AND ' + str(author_query) + '[Author]' # + ' AND medline[sb] AND "open access"[filter]'
+    search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
+    time.sleep(1)
+    success = False
+
+    if int(search_results["Count"]) == 1: ## if searching only for title worked
+        success = True
+
+    elif int(search_results["Count"]) > 1: ## if too many queries popped up
+        search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author]' ## try searching with author
         search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
         time.sleep(1)
-        success = False
-
-        if int(search_results["Count"]) == 1: ## if searching only for title worked
-            success = True
-
-        elif int(search_results["Count"]) > 1: ## if too many queries popped up
-            search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author]' ## try searching with author
+        if int(search_results["Count"]) > 1: ## searching with author did not work
+            for i in range(1, len(authors_list)):
+                author_query = " OR "+ author_query
+            search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author]' ## try searching with authors
             search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
             time.sleep(1)
-            if int(search_results["Count"]) > 1: ## searching with author did not work
-                for i in range(1, len(authors_list)):
-                    author_query = " OR "+ author_query
-                search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author]' ## try searching with authors
+            if int(search_results["Count"]) > 1: ## searching with authors did not work
+                search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author] AND medline[sb] AND "open access"[filter]' ## try searching with filters
                 search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
                 time.sleep(1)
-                if int(search_results["Count"]) > 1: ## searching with authors did not work
-                    search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author] AND medline[sb] AND "open access"[filter]' ## try searching with filters
-                    search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-                    time.sleep(1)
-                    if int(search_results["Count"]) > 1: ## searching with filter did not work
-                        success = False
-                    elif int(search_results["Count"]) == 1: ## searching with filters worked
-                        success = True
-                else: ## searching with authors did work
+                if int(search_results["Count"]) > 1: ## searching with filter did not work
+                    success = False
+                elif int(search_results["Count"]) == 1: ## searching with filters worked
                     success = True
-            else: ## searching with author worked
+            else: ## searching with authors did work
                 success = True
+        else: ## searching with author worked
+            success = True
 
-        elif int(search_results["Count"]) == 0: ## no search results
-            success = False
+    elif int(search_results["Count"]) == 0: ## no search results
+        success = False
 
-        ## Finding abstracts
-        if abstract == "":
-            id_list = pubmed_search_ids(title)
-            if len(id_list) == 1: # checking to see if only one query came back
-                abstract = pubmed_get_abstracts(id_list[0])
+    ## Finding abstracts
+    if abstract == "" or abstract is None:
+        id_list = pubmed_search_ids(title)
+        if len(id_list) == 1: # checking to see if only one query came back
+            abstract = pubmed_get_abstracts(id_list[0])
 
-        if success and get_full_text_from_search_results(search_results) is not None:
-            fulltext = get_full_text_from_search_results(search_results)
-            # Create article dictionary
-            article_dict = {
-                "pmid": pmid,
-                "title": title,
-                "authors": ", ".join(authors_list),
-                "has_full_text": "yes",
-                "abstract": abstract,
-                "full_text": fulltext,
-                "publication_date": date
-            }
-            # # Read existing data
-            # with open(json_file_path, 'r') as f:
-            #     data = json.load(f)
+    if success and get_full_text_from_search_results(search_results) is not None:
+        fulltext = get_full_text_from_search_results(search_results)
+        # Create article dictionary
+        article_dict = {
+            "pmid": pmid,
+            "title": title,
+            "authors": ", ".join(authors_list),
+            "has_full_text": "yes",
+            "abstract": abstract,
+            "full_text": fulltext,
+            "publication_date": date
+        }
+        # # Read existing data
+        # with open(json_file_path, 'r') as f:
+        #     data = json.load(f)
 
-            # # Append new article
-            # data.append(article_dict)
+        # # Append new article
+        # data.append(article_dict)
 
-            # # Write updated data back to file
-            # with open(json_file_path, 'w') as f:
-            #     json.dump(data, f, indent=2)
+        # # Write updated data back to file
+        # with open(json_file_path, 'w') as f:
+        #     json.dump(data, f, indent=2)
 
-            create_pdf(article_dict, output_folder)
-            print(f"Added article {articles_accessed} to JSON file. Success!")
-        else:
-            # Create article dictionary
-            article_dict = {
-                "pmid": pmid,
-                "title": title,
-                "authors": ", ".join(authors_list),
-                "has_full_text": "no",
-                "abstract": abstract,
-                "full_text": "",
-                "publication_date": date
-            }
-            # # Read existing data
-            # with open(json_file_path, 'r') as f:
-            #     data = json.load(f)
+        create_pdf(article_dict, output_folder)
+        print(f"Added article {articles_accessed} to JSON file. Success!")
+    else:
+        # Create article dictionary
+        article_dict = {
+            "pmid": pmid,
+            "title": title,
+            "authors": ", ".join(authors_list),
+            "has_full_text": "no",
+            "abstract": abstract,
+            "full_text": "",
+            "publication_date": date
+        }
+        # # Read existing data
+        # with open(json_file_path, 'r') as f:
+        #     data = json.load(f)
 
-            # # Append new article
-            # data.append(article_dict)
+        # # Append new article
+        # data.append(article_dict)
 
-            # # Write updated data back to file
-            # with open(json_file_path, 'w') as f:
-            #     json.dump(data, f, indent=2)
+        # # Write updated data back to file
+        # with open(json_file_path, 'w') as f:
+        #     json.dump(data, f, indent=2)
 
-            create_pdf(article_dict, output_folder)
-            print(f"Added article {articles_accessed} to JSON file. No full text :(")
-
-    except Exception as e:
-        print("Error " + str(e))
-        continue
+        create_pdf(article_dict, output_folder)
+        print(f"Added article {articles_accessed} to JSON file. No full text :(")
 
 
 
