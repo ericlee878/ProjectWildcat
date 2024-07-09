@@ -1,0 +1,9 @@
+{
+    "id": "article_1",
+    "title": "Article Title",
+    "authors": "author_one, author_two, etc...",
+    "has_full_text": "yes or no",
+    "abstract": "Abstract text...",
+    "full_text": "Full article text...",
+    "publication_date": "2023-07-08"
+}

@@ -2,7 +2,8 @@ import requests
 from bs4 import BeautifulSoup
 import openpyxl
 import time
-from scholarly import scholarly
+import json
+from fpdf import FPDF
 
 def pubmed_search_ids(query):
     '''
@@ -40,7 +41,7 @@ def pubmed_search_ids(query):
     return id_list  # Return id_list instead of ids_list
 
 path = "../data/papers.xlsx"
-def extract_articles(path):
+def extract_metadata(path):
     '''
     Parameters:
     ----------------
@@ -60,45 +61,16 @@ def extract_articles(path):
         sheetname = dataframe.sheetnames[i]
         curr_sheet = dataframe._sheets[i]
         for i in range(1, curr_sheet.max_row):
-            title = curr_sheet.cell(row = i, column = 8).value
-            authors = curr_sheet.cell(row = i, column = 5).value
-            if title is not None and authors is not None and title != 'TITLE' and authors != 'AUTHORS':
-                pair = [title, authors]
-                articles.append(pair)
+            title = curr_sheet.cell(row = i, column = 8).value #H
+            authors = curr_sheet.cell(row = i, column = 5).value #E
+            pmid = curr_sheet.cell(row = i, column = 3).value #C
+            date = curr_sheet.cell(row = i, column = 13).value #M
+            abstract = curr_sheet.cell(row = i, column = 11).value #K
+            if title is not None:
+                article = [title, authors, pmid, date, abstract]
+                articles.append(article)
 
     return articles
-
-def extract_authors(path):
-    '''
-    Parameters:
-    ----------------
-    path: the path of the excel search
-
-    Returns:
-    ----------------
-    authors: dictionary of titles where the key is the sheet name and the value is a list of titles of articles
-    '''
-    authors = {}
-
-    # Define variable to load the dataframe
-    dataframe = openpyxl.load_workbook(path)
-
-    # iterates through each sheet and adds each title into list
-    for i in range(len(dataframe.sheetnames)):
-        sheetname = dataframe.sheetnames[i]
-        curr_sheet = dataframe._sheets[i]
-        authors[sheetname] = []
-        for i in range(1, curr_sheet.max_row):
-            title = curr_sheet.cell(row = i, column = 4).value
-            if title is not None:
-                titles[sheetname].append(title)
-        
-        # Gets rid of sheets without any titles
-        if authors[sheetname] == []:
-            del authors[sheetname]
-
-    return authors
-
 
 def pubmed_get_abstracts(id):
     '''
@@ -172,23 +144,64 @@ def pubmed_get_free_fulltext_link(id):
 
 def get_full_text_from_search_results(search_results):
     batch_size = 100
-    end = min(int(search_results["Count"]), start + batch_size)
-    handle = Entrez.efetch(db="pmc", rettype="full", retmode="xml", 
-                        retstart=start, retmax=batch_size,
-                        webenv=search_results["WebEnv"], 
-                        query_key=search_results["QueryKey"])
-    data = handle.read()
-    soup = BeautifulSoup(data, features="xml")
-    body_soup = soup.find("body")
-    p_soup = body_soup.find_all("p")
-    for p in p_soup:
-        full_text = full_text + p.text
-    # fulltexts = open("../data/fulltext_test.txt", "w")
-    # fulltexts.write(str(data))# + ",\n")
-    # fulltexts.close()
-    handle.close()
-    return full_text
+    for start in range(0, int(search_results["Count"]), batch_size):
+        end = min(int(search_results["Count"]), start + batch_size)
+        handle = Entrez.efetch(db="pmc", rettype="full", retmode="xml", 
+                            retstart=start, retmax=batch_size,
+                            webenv=search_results["WebEnv"], 
+                            query_key=search_results["QueryKey"])
+        data = handle.read()
+        soup = BeautifulSoup(data, features="xml")
+        # body_soup = soup.find("body")
+        p_soup = soup.find_all("p")
+        full_text = ""
+        for p in p_soup:
+            full_text = full_text + p.text
+        return full_text
 
+
+def create_pdf(article_dict, output_folder):
+    filename = f"{article_dict['pmid']}.pdf"
+    filepath = os.path.join(output_folder, filename)
+    
+    pdf = FPDF()
+    pdf.add_page()
+    
+    # Set font for title
+    pdf.set_font("Arial", 'B', size=16)
+    
+    # Add title
+    pdf.multi_cell(0, 10, txt=article_dict['title'], align='C')
+    pdf.ln(10)
+    
+    # Set font for normal text
+    pdf.set_font("Arial", size=12)
+    
+    # Add authors
+    pdf.multi_cell(0, 10, txt=f"Authors: {article_dict['authors']}", align='L')
+    pdf.ln(5)
+    
+    # Add publication date
+    pdf.multi_cell(0, 10, txt=f"Publication Date: {article_dict['publication_date']}", align='L')
+    pdf.ln(10)
+    
+    # Add abstract
+    pdf.set_font("Arial", 'B', size=14)
+    pdf.cell(0, 10, txt="Abstract:", ln=1)
+    pdf.set_font("Arial", size=12)
+    pdf.multi_cell(0, 10, txt=article_dict['abstract'])
+    pdf.ln(10)
+    
+    # # Add full text if available
+    # if article_dict['has_full_text'] == "yes":
+    #     pdf.add_page()
+    #     pdf.set_font("Arial", 'B', size=14)
+    #     pdf.cell(0, 10, txt="Full Text:", ln=1)
+    #     pdf.set_font("Arial", size=12)
+    #     pdf.multi_cell(0, 10, txt=article_dict['full_text'])
+    
+    pdf.output(filepath)
+    print(f"Created PDF for article {article_dict['pmid']}")
 
 
 # ''' MAIN (abstracts)'''
@@ -240,21 +253,40 @@ success = False
 
 # getting the titles from the excel sheet
 path = "../data/papers.xlsx"
-articles = extract_articles(path)
+articles = extract_metadata(path)
+
+import os
+
+# json_file_path = "../data/articles.json"
+
+# if not os.path.exists(json_file_path):
+#     with open(json_file_path, 'w') as f:
+#         json.dump([], f)
+
+# Create output folder for PDFs
+output_folder = "..\\data\\abstract_pdfs"
+
+if not os.path.exists(output_folder):
+    os.makedirs(output_folder)
 
 articles_accessed = 0
 
 for article in articles:
     articles_accessed += 1
-    print("Articles accessed: " + str(articles_accessed))
     title = article[0]
     authors = article[1]
+    pmid = article[2]
+    date = article[3]
+    abstract = article[4]
     authors_list = [line.strip() for line in authors.strip().split('\n\n')]
     author_query = authors_list[0]
 
+    if title == 'TITLE':
+        continue
+
     try:
         search_query = str(title) + '[Title]'# AND ' + str(author_query) + '[Author]' # + ' AND medline[sb] AND "open access"[filter]'
-        search_results = Entrez.read(Entrez.esearch(db="pubmed", term=search_query, retmax=10, usehistory="y"))
+        search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
         time.sleep(1)
         success = False
 
@@ -263,20 +295,20 @@ for article in articles:
 
         elif int(search_results["Count"]) > 1: ## if too many queries popped up
             search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author]' ## try searching with author
-            search_results = Entrez.read(Entrez.esearch(db="pubmed", term=search_query, retmax=10, usehistory="y"))
+            search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
             time.sleep(1)
             if int(search_results["Count"]) > 1: ## searching with author did not work
                 for i in range(1, len(authors_list)):
                     author_query = " OR "+ author_query
                 search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author]' ## try searching with authors
-                search_results = Entrez.read(Entrez.esearch(db="pubmed", term=search_query, retmax=10, usehistory="y"))
+                search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
                 time.sleep(1)
                 if int(search_results["Count"]) > 1: ## searching with authors did not work
                     search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author] AND medline[sb] AND "open access"[filter]' ## try searching with filters
-                    search_results = Entrez.read(Entrez.esearch(db="pubmed", term=search_query, retmax=10, usehistory="y"))
+                    search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
                     time.sleep(1)
                     if int(search_results["Count"]) > 1: ## searching with filter did not work
-                        pass
+                        success = False
                     elif int(search_results["Count"]) == 1: ## searching with filters worked
                         success = True
                 else: ## searching with authors did work
@@ -285,18 +317,118 @@ for article in articles:
                 success = True
 
         elif int(search_results["Count"]) == 0: ## no search results
-            pass
-        
-        if success:
+            success = False
+
+        ## Finding abstracts
+        if abstract == "":
+            id_list = pubmed_search_ids(title)
+            if len(id_list) == 1: # checking to see if only one query came back
+                abstract = pubmed_get_abstracts(id_list[0])
+
+        if success and get_full_text_from_search_results(search_results) is not None:
             fulltext = get_full_text_from_search_results(search_results)
-            print("Success!")
-            fulltexts = open("../data/fulltexts.txt", "a")
-            fulltexts.write(fulltext + ",\n")
-            fulltexts.close()
+            # Create article dictionary
+            article_dict = {
+                "pmid": pmid,
+                "title": title,
+                "authors": ", ".join(authors_list),
+                "has_full_text": "yes",
+                "abstract": abstract,
+                "full_text": fulltext,
+                "publication_date": date
+            }
+            # # Read existing data
+            # with open(json_file_path, 'r') as f:
+            #     data = json.load(f)
+
+            # # Append new article
+            # data.append(article_dict)
+
+            # # Write updated data back to file
+            # with open(json_file_path, 'w') as f:
+            #     json.dump(data, f, indent=2)
+
+            create_pdf(article_dict, output_folder)
+            print(f"Added article {articles_accessed} to JSON file. Success!")
+        else:
+            # Create article dictionary
+            article_dict = {
+                "pmid": pmid,
+                "title": title,
+                "authors": ", ".join(authors_list),
+                "has_full_text": "no",
+                "abstract": abstract,
+                "full_text": "",
+                "publication_date": date
+            }
+            # # Read existing data
+            # with open(json_file_path, 'r') as f:
+            #     data = json.load(f)
+
+            # # Append new article
+            # data.append(article_dict)
+
+            # # Write updated data back to file
+            # with open(json_file_path, 'w') as f:
+            #     json.dump(data, f, indent=2)
+
+            create_pdf(article_dict, output_folder)
+            print(f"Added article {articles_accessed} to JSON file. No full text :(")
 
     except Exception as e:
+        print("Error " + str(e))
         continue
 
 
 
 
+
+############################################## FULL TEXT ACCESSOR TESTING #################################################
+# from Bio import Entrez
+
+# Entrez.email = "eric7lee87@gmail.com" 
+
+# search_query = 'Fibrin Sealants in Dura Sealing: A Systematic Literature Review' + '[Title]'# AND ' + str(author_query) + '[Author]' # + ' AND medline[sb] AND "open access"[filter]'
+# search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
+# batch_size = 100
+# for start in range(0, int(search_results["Count"]), batch_size):
+#     end = min(int(search_results["Count"]), start + batch_size)
+#     handle = Entrez.efetch(db="pmc", rettype="full", retmode="xml", 
+#                         retstart=start, retmax=batch_size,
+#                         webenv=search_results["WebEnv"], 
+#                         query_key=search_results["QueryKey"])
+#     data = handle.read()
+#     soup = BeautifulSoup(data, features="xml")
+#     # body_soup = soup.find("body")
+#     p_soup = soup.find_all("p")
+#     full_text = ""
+#     for p in p_soup:
+#         full_text = full_text + p.text
+#     print(full_text)
+#     # handle.close()
+
+
+from Bio import Entrez
+
+import pdfkit
+
+def convert_html_to_pdf(html_content, pdf_path):
+    try:
+        pdfkit.from_string(html_content, pdf_path)
+        print(f"PDF generated and saved at {pdf_path}")
+    except Exception as e:
+        print(f"PDF generation failed: {e}")
+
+Entrez.email = "eric7lee87@gmail.com" 
+
+search_query = 'Fibrin Sealants in Dura Sealing: A Systematic Literature Review' + '[Title]'# AND ' + str(author_query) + '[Author]' # + ' AND medline[sb] AND "open access"[filter]'
+search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
+batch_size = 100
+for start in range(0, int(search_results["Count"]), batch_size):
+    end = min(int(search_results["Count"]), start + batch_size)
+    handle = Entrez.efetch(db="pmc", rettype="full", retmode="xml", 
+                        retstart=start, retmax=batch_size,
+                        webenv=search_results["WebEnv"], 
+                        query_key=search_results["QueryKey"])
+    data = handle.read()
+    convert_html_to_pdf(data, '../pdfs/test.pdf')
