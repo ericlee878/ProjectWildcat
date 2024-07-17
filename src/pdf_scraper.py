@@ -1,9 +1,13 @@
+import os
 import requests
 from bs4 import BeautifulSoup
 import openpyxl
 import time
 import json
 from fpdf import FPDF
+from Bio import Entrez
+
+Entrez.email = "eric7lee87@gmail.com" 
 
 def pubmed_search_ids(query):
     '''
@@ -191,6 +195,79 @@ def create_pdf(article_dict, output_folder):
     print(f"Created PDF for article {article_dict['pmid']}")
 
 
+def create_large_pdf(dict_list, output_folder, filename):
+    filepath = os.path.join(output_folder, filename)
+    
+    pdf = FPDF()
+    pdf.add_page()
+    
+    # Set font for Filename
+    pdf.set_font("Arial", 'B', size=30)
+
+    # Add Filename
+    pdf.multi_cell(0, 10, txt=filename.capitalize(), align='C')
+    pdf.ln(10)
+
+    pdf_num = 0
+
+    for d in dict_list:
+        pdf.add_page()
+        # Set font for title
+        pdf.set_font("Arial", 'B', size=16)
+        
+        # Add title
+        pdf.multi_cell(0, 10, txt=d['title'], align='C')
+        pdf.ln(10)
+        
+        # Set font for normal text
+        pdf.set_font("Arial", size=12)
+        
+        # Add authors
+        pdf.multi_cell(0, 10, txt=f"Authors: {d['authors']}", align='L')
+        pdf.ln(5)
+        
+        # Add publication date
+        pdf.multi_cell(0, 10, txt=f"Publication Date: {d['publication_date']}", align='L')
+        pdf.ln(10)
+        
+        # Add abstract
+        if d['abstract'] is not None:
+            pdf.set_font("Arial", 'B', size=14)
+            pdf.cell(0, 10, txt="Abstract:", ln=1)
+            pdf.set_font("Arial", size=12)
+            pdf.multi_cell(0, 10, txt=d['abstract'])
+            pdf.ln(10)
+        else:
+            pdf.set_font("Arial", 'B', size=14)
+            pdf.cell(0, 10, txt="Abstract:", ln=1)
+            pdf.set_font("Arial", size=12)
+            pdf.multi_cell(0, 10, txt='Not Available')
+            pdf.ln(10)
+
+        if pdf.page_no() >= 198:
+            print("New PDF page")
+            pdf.output(filepath + "_" + str(pdf_num) + ".pdf")
+            pdf = FPDF()
+            pdf.add_page()
+            pdf_num = pdf_num + 1
+        
+        # # Add full text if available
+        # if d['has_full_text'] == "yes" and d['has_full_text'] is not None:
+        #     pdf.add_page()
+        #     pdf.set_font("Arial", 'B', size=14)
+        #     pdf.cell(0, 10, txt="Full Text:", ln=1)
+        #     pdf.set_font("Arial", size=12)
+        #     pdf.multi_cell(0, 10, txt=d['full_text'])
+        # else:
+        #     pdf.add_page()
+        #     pdf.set_font("Arial", 'B', size=14)
+        #     pdf.cell(0, 10, txt="Full Text:", ln=1)
+        #     pdf.set_font("Arial", size=12)
+        #     pdf.multi_cell(0, 10, txt='Not Available')
+        
+    pdf.output(filepath + "_" + str(pdf_num) + ".pdf")
+
+
 ''' MAIN (full texts) '''
 
 # from Bio import Entrez
@@ -356,134 +433,43 @@ def create_pdf(article_dict, output_folder):
 #     # handle.close()
 
 ############ CODE THAT CREATES KEYWORD DICTIONARY ###########################
-import os
 
-from Bio import Entrez
+# articles_accessed = 0
+# articles = extract_metadata(path)
+# keyword_dict = {}
+# for article in articles:
+#     articles_accessed += 1
+#     pmid = article[2]
+#     mesh = article[5]
+#     keywords = article[6]
 
-Entrez.email = "eric7lee87@gmail.com" 
+#     if mesh is not None and keywords is not None:
+#         combined = mesh + keywords
+#         combined = list(set(combined))
+#     elif mesh is None and keywords is None:
+#         continue
+#     elif mesh is None and keywords is not None:
+#         combined = keywords
+#     elif keywords is None and mesh is not None:
+#         combined = mesh
 
-articles_accessed = 0
-articles = extract_metadata(path)
-keyword_dict = {}
-for article in articles:
-    articles_accessed += 1
-    pmid = article[2]
-    mesh = article[5]
-    keywords = article[6]
+#     if combined is not None:
+#         for word in combined:
+#             word = word.lower()
+#             for letter in word:
+#                 if letter in '*)]";,':
+#                     word = word.replace(letter,'')
+#                 elif letter in "[(/":
+#                     if word.index(letter) == 0:
+#                         word = word.replace(letter,'')
+#                     else:
+#                         word = word[0:word.index(letter)]
+#             if word in keyword_dict.keys():
+#                 if pmid not in keyword_dict[word]:
+#                     keyword_dict[word].append(pmid)
+#             else:
+#                 keyword_dict[word] = [pmid]
 
-    if mesh is not None and keywords is not None:
-        combined = mesh + keywords
-        combined = list(set(combined))
-    elif mesh is None and keywords is None:
-        continue
-    elif mesh is None and keywords is not None:
-        combined = keywords
-    elif keywords is None and mesh is not None:
-        combined = mesh
-
-    if combined is not None:
-        for word in combined:
-            for letter in word:
-                if letter in '*)]"':
-                    word = word.replace(letter,'')
-                elif letter in "[(/":
-                    if word.index(letter) == 0:
-                        word = word.replace(letter,'')
-                    else:
-                        word = word[0:word.index(letter)]
-            if word in keyword_dict.keys():
-                if pmid not in keyword_dict[word]:
-                    keyword_dict[word].append(pmid)
-            else:
-                keyword_dict[word] = [pmid]
-
-
-word = "hemoglobin"
-output_folder = "..\\pdfs\\" + str(word)
-if not os.path.exists(output_folder):
-    os.makedirs(output_folder)      
-      
-for article in articles:
-    try:
-        articles_accessed += 1
-        title = article[0]
-        authors = article[1]
-        pmid = article[2]
-        date = article[3]
-        abstract = article[4]
-        authors_list = [line.strip() for line in authors.strip().split('\n\n')]
-        author_query = authors_list[0]
-        mesh = article[5]
-        keywords = article[6]
-
-        if mesh is not None and keywords is not None:
-            combined = mesh + keywords
-            combined = list(set(combined))
-        elif mesh is None and keywords is None:
-            continue
-        elif mesh is None and keywords is not None:
-            combined = keywords
-        elif keywords is None and mesh is not None:
-            combined = mesh
-
-        if word in combined:
-
-            if title == 'TITLE':
-                continue
-
-            search_query = str(title) + '[Title]'# AND ' + str(author_query) + '[Author]' # + ' AND medline[sb] AND "open access"[filter]'
-            search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-            time.sleep(1)
-            success = False
-
-            if int(search_results["Count"]) == 1: ## if searching only for title worked
-                success = True
-
-            elif int(search_results["Count"]) > 1: ## if too many queries popped up
-                search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author]' ## try searching with author
-                search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-                time.sleep(1)
-                if int(search_results["Count"]) > 1: ## searching with author did not work
-                    for i in range(1, len(authors_list)):
-                        author_query = " OR "+ author_query
-                    search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author]' ## try searching with authors
-                    search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-                    time.sleep(1)
-                    if int(search_results["Count"]) > 1: ## searching with authors did not work
-                        search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author] AND medline[sb] AND "open access"[filter]' ## try searching with filters
-                        search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-                        time.sleep(1)
-                        if int(search_results["Count"]) > 1: ## searching with filter did not work
-                            success = False
-                        elif int(search_results["Count"]) == 1: ## searching with filters worked
-                            success = True
-
-
-            ## Finding abstracts
-            if abstract == "" or abstract is None:
-                id_list = pubmed_search_ids(title)
-                if len(id_list) == 1: # checking to see if only one query came back
-                    abstract = pubmed_get_abstracts(id_list[0])
-
-            ## Create article dictionary
-            article_dict = {
-                "pmid": pmid,
-                "title": title,
-                "authors": ", ".join(authors_list),
-                "has_full_text": "no",
-                "abstract": abstract,
-                "full_text": "",
-                "publication_date": date
-            } 
-
-            create_pdf(article_dict, output_folder)
-
-    except Exception as e:
-        print("Error: " + str(e))
-
-
-
-# import os
 # json_file_path = "../data/dictionary.json"
 
 # if not os.path.exists(json_file_path):
@@ -492,6 +478,102 @@ for article in articles:
 
 # with open(json_file_path, 'w') as f:
 #     json.dump(keyword_dict, f, indent=2)
+
+############### CODE THAT DOWNLOADS PDFS ################
+
+# # getting the titles from the excel sheet
+# path = "../data/papers.xlsx"
+# articles = extract_metadata(path)
+
+# word = input("Input your word: ")
+
+# output_folder = "..\\pdfs\\" + word
+# if not os.path.exists(output_folder):
+#     os.makedirs(output_folder)      
+      
+# dict_list = []
+
+# articles_found = 0
+
+# ## getting the relevant PMIDs from json
+
+# file = open('../data/dictionary.json')
+# data = json.load(file)
+# pmids = data[word.lower()]
+# for article in articles:
+#     try:
+#         title = article[0]
+#         authors = article[1]
+#         pmid = article[2]
+#         date = article[3]
+#         abstract = article[4]
+#         authors_list = [line.strip() for line in authors.strip().split('\n\n')]
+#         author_query = authors_list[0]
+#         mesh = article[5]
+#         keywords = article[6]
+
+#         if pmid in pmids:
+
+#             if title == 'TITLE':
+#                 continue
+
+#             search_query = str(title) + '[Title]'# AND ' + str(author_query) + '[Author]' # + ' AND medline[sb] AND "open access"[filter]'
+#             search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
+#             time.sleep(1)
+#             success = False
+
+#             if int(search_results["Count"]) == 1: ## if searching only for title worked
+#                 success = True
+
+#             elif int(search_results["Count"]) > 1: ## if too many queries popped up
+#                 search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author]' ## try searching with author
+#                 search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
+#                 time.sleep(1)
+#                 if int(search_results["Count"]) > 1: ## searching with author did not work
+#                     for i in range(1, len(authors_list)):
+#                         author_query = " OR "+ author_query
+#                     search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author]' ## try searching with authors
+#                     search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
+#                     time.sleep(1)
+#                     if int(search_results["Count"]) > 1: ## searching with authors did not work
+#                         search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author] AND medline[sb] AND "open access"[filter]' ## try searching with filters
+#                         search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
+#                         time.sleep(1)
+#                         if int(search_results["Count"]) > 1: ## searching with filter did not work
+#                             success = False
+#                         elif int(search_results["Count"]) == 1: ## searching with filters worked
+#                             success = True
+
+
+#             ## Finding abstracts
+#             if abstract == "" or abstract is None:
+#                 id_list = pubmed_search_ids(title)
+#                 if len(id_list) == 1: # checking to see if only one query came back
+#                     abstract = pubmed_get_abstracts(id_list[0])
+
+#             ## Create article dictionary
+#             article_dict = {
+#                 "pmid": pmid,
+#                 "title": title,
+#                 "authors": ", ".join(authors_list),
+#                 "has_full_text": "no",
+#                 "abstract": abstract,
+#                 "full_text": "",
+#                 "publication_date": date
+#             } 
+
+#             dict_list.append(article_dict)
+#             articles_found = articles_found + 1
+#             print(str(articles_found) + "/" + str(len(pmids)) + " articles found")
+
+#     except Exception as e:
+#         print("Error: " + str(e))
+
+# print("Creating large pdf")
+# create_large_pdf(dict_list, output_folder, word)
+
+
+
 
 
 
