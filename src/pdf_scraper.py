@@ -10,7 +10,8 @@ import re
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
+import dateutil.parser as dparser
 
 Entrez.email = "eric7lee87@gmail.com" 
 
@@ -279,219 +280,86 @@ def create_pdf(article_dict, output_folder):
 
 
 def create_large_pdf(dict_list, output_folder, filename, include_fulltexts):
-    if include_fulltexts:
-        filepath = os.path.join(output_folder, filename)
-        
-        doc = SimpleDocTemplate(filepath + ".pdf", pagesize=letter)
-        styles = getSampleStyleSheet()
-        story = []
+    filepath = os.path.join(output_folder, f"{filename}.pdf")
+    doc = SimpleDocTemplate(filepath, pagesize=letter)
+    styles = getSampleStyleSheet()
+    story = []
 
-        # Add filename
-        story.append(Paragraph(filename.capitalize(), styles['Title']))
+    # Create a new style for justified text
+    justified_style = ParagraphStyle(name='Justified', parent=styles['Normal'], alignment=TA_JUSTIFY)
+
+    # Add filename as title
+    story.append(Paragraph(filename.capitalize(), styles['Title']))
+    story.append(Spacer(1, 12))
+
+    for article in dict_list:
+        # Add title
+        story.append(Paragraph(article['title'], styles['Heading1']))
         story.append(Spacer(1, 12))
 
-        for d in dict_list:
-            # Add title
-            story.append(Paragraph(d['title'], styles['Heading1']))
-            story.append(Spacer(1, 12))
-
-            # Add authors
-            story.append(Paragraph(f"Authors: {d['authors']}", styles['Normal']))
+        # Add metadata
+        metadata = [
+            f"Authors: {article['authors']}",
+            f"PMID: {article['pmid']}"
+        ]
+        for item in metadata:
+            story.append(Paragraph(item, styles['Normal']))
             story.append(Spacer(1, 6))
 
-            # Add publication date
-            story.append(Paragraph(f"Publication Date: {d['publication_date']}", styles['Normal']))
-            story.append(Spacer(1, 12))
-
-            # Add PMID
-            story.append(Paragraph(f"PMID: {d['pmid']}", styles['Normal']))
-            story.append(Spacer(1, 12))
-
-            # Add abstract
-            story.append(Paragraph("Abstract:", styles['Heading2']))
-            abstract_text = d['abstract'] if d['abstract'] is not None else 'Not Available'
-            story.append(Paragraph(abstract_text, styles['Normal']))
-            story.append(Spacer(1, 12))
-
-            # Add fulltext
-            story.append(Paragraph("Full Text:", styles['Heading2']))
-            abstract_text = d['full_text'] if d['full_text'] is not None else 'Not Available'
-            print(d['full_text'])
-            story.append(Paragraph(abstract_text, styles['Normal']))
-            story.append(Spacer(1, 12))
-
-        doc.build(story)
-    else:
-        filepath = os.path.join(output_folder, filename)
-        
-        doc = SimpleDocTemplate(filepath + ".pdf", pagesize=letter)
-        styles = getSampleStyleSheet()
-        story = []
-
-        # Add filename
-        story.append(Paragraph(filename.capitalize(), styles['Title']))
         story.append(Spacer(1, 12))
 
-        for d in dict_list:
-            # Add title
-            story.append(Paragraph(d['title'], styles['Heading1']))
-            story.append(Spacer(1, 12))
+        # Add abstract
+        story.append(Paragraph("Abstract", styles['Heading2']))
+        abstract_text = article['abstract'] if article['abstract'] is not None else 'Not Available'
+        abstract_text = clean_latex(abstract_text)
+        story.append(Paragraph(abstract_text, justified_style))
+        story.append(Spacer(1, 12))
 
-            # Add authors
-            story.append(Paragraph(f"Authors: {d['authors']}", styles['Normal']))
-            story.append(Spacer(1, 6))
+        # Add full text if required
+        if include_fulltexts and article['full_text'] is not None and not article['full_text'] == "":
+            story.append(Paragraph("Full Text", styles['Heading2']))
+            full_text = article['full_text'] #if article['full_text'] is not None else 'Not Available'
+            full_text = clean_latex(full_text)
+            
+            # Split the full text into sections
+            sections = re.split(r'(\n\s*[A-Z][A-Za-z\s]+:)', full_text)
+            for i in range(0, len(sections), 2):
+                if i+1 < len(sections): 
+                    # Add section header
+                    story.append(Paragraph(sections[i].strip(), styles['Heading3']))
+                    # Add section content
+                    story.append(Paragraph(sections[i+1].strip(), justified_style))
+                else:
+                    # If there's an odd number of sections, add the last one
+                    story.append(Paragraph(sections[i].strip(), justified_style))
+                story.append(Spacer(1, 12))
 
-            # Add publication date
-            story.append(Paragraph(f"Publication Date: {d['publication_date']}", styles['Normal']))
-            story.append(Spacer(1, 12))
+        # # Add page break after each article
+        # story.append(PageBreak())
 
-            # Add abstract
-            story.append(Paragraph("Abstract:", styles['Heading2']))
-            abstract_text = d['abstract'] if d['abstract'] is not None else 'Not Available'
-            story.append(Paragraph(abstract_text, styles['Normal']))
-            story.append(Spacer(1, 12))
+    doc.build(story)
 
-        doc.build(story)
-
-''' MAIN (full texts) '''
-
-# from Bio import Entrez
-
-# Entrez.email = "eric7lee87@gmail.com" 
-
-
-# success = False
-
-
-# # getting the titles from the excel sheet
-# path = "../data/papers.xlsx"
-# articles = extract_metadata(path)
-
-# import os
-
-# json_file_path = "../data/abstracts.json"
-
-# if not os.path.exists(json_file_path):
-#     with open(json_file_path, 'w') as f:
-#         json.dump([], f)
-
-# # Create output folder for PDFs
-# output_folder = "..\\data\\full_texts_and_abstracts_pdf"
-
-# if not os.path.exists(output_folder):
-#     os.makedirs(output_folder)
-
-# articles_accessed = 0
-
-# for article in articles:
-#     try:
-#         articles_accessed += 1
-#         title = article[0]
-#         authors = article[1]
-#         pmid = article[2]
-#         date = article[3]
-#         abstract = article[4]
-#         authors_list = [line.strip() for line in authors.strip().split('\n\n')]
-#         author_query = authors_list[0]
-
-#         if title == 'TITLE':
-#             continue
-
-#         search_query = str(title) + '[Title]'# AND ' + str(author_query) + '[Author]' # + ' AND medline[sb] AND "open access"[filter]'
-#         search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-#         time.sleep(1)
-#         success = False
-
-#         if int(search_results["Count"]) == 1: ## if searching only for title worked
-#             success = True
-
-#         elif int(search_results["Count"]) > 1: ## if too many queries popped up
-#             search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author]' ## try searching with author
-#             search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-#             time.sleep(1)
-#             if int(search_results["Count"]) > 1: ## searching with author did not work
-#                 for i in range(1, len(authors_list)):
-#                     author_query = " OR "+ author_query
-#                 search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author]' ## try searching with authors
-#                 search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-#                 time.sleep(1)
-#                 if int(search_results["Count"]) > 1: ## searching with authors did not work
-#                     search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author] AND medline[sb] AND "open access"[filter]' ## try searching with filters
-#                     search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-#                     time.sleep(1)
-#                     if int(search_results["Count"]) > 1: ## searching with filter did not work
-#                         success = False
-#                     elif int(search_results["Count"]) == 1: ## searching with filters worked
-#                         success = True
-#                 else: ## searching with authors did work
-#                     success = True
-#             else: ## searching with author worked
-#                 success = True
-
-#         elif int(search_results["Count"]) == 0: ## no search results
-#             success = False
-
-#         ## Finding abstracts
-#         if abstract == "" or abstract is None:
-#             id_list = pubmed_search_ids(title)
-#             if len(id_list) == 1: # checking to see if only one query came back
-#                 abstract = pubmed_get_abstracts(id_list[0])
-
-#         if success and get_full_text_from_search_results(search_results) is not None:
-#             fulltext = get_full_text_from_search_results(search_results)
-#             # Create article dictionary
-#             article_dict = {
-#                 "pmid": pmid,
-#                 "title": title,
-#                 "authors": ", ".join(authors_list),
-#                 "has_full_text": "yes",
-#                 "abstract": abstract,
-#                 "full_text": fulltext,
-#                 "publication_date": date
-#             }
-#             # Read existing data
-#             with open(json_file_path, 'r') as f:
-#                 data = json.load(f)
-
-#             # Append new article
-#             data.append(article_dict)
-
-#             # Write updated data back to file
-#             with open(json_file_path, 'w') as f:
-#                 json.dump(data, f, indent=2)
-
-#             create_pdf(article_dict, output_folder)
-#             print(f"Added article {articles_accessed} to JSON file. Success!")
-#         else:
-#             # Create article dictionary
-#             article_dict = {
-#                 "pmid": pmid,
-#                 "title": title,
-#                 "authors": ", ".join(authors_list),
-#                 "has_full_text": "no",
-#                 "abstract": abstract,
-#                 "full_text": "",
-#                 "publication_date": date
-#             }
-#             # Read existing data
-#             with open(json_file_path, 'r') as f:
-#                 data = json.load(f)
-
-#             # Append new article
-#             data.append(article_dict)
-
-#             # Write updated data back to file
-#             with open(json_file_path, 'w') as f:
-#                 json.dump(data, f, indent=2)
-
-#             create_pdf(article_dict, output_folder)
-#             print(f"Added article {articles_accessed} to JSON file. No full text :(")
-#     except Exception as e:
-#         print("Error: " + str(e))
-
-
-
-
+def clean_latex(text):
+    # Remove LaTeX commands
+    text = re.sub(r'\\[a-zA-Z]+(\{[^}]*\})?', '', text)
+    # Replace LaTeX special characters
+    replacements = {
+        '\\&': '&',
+        '\\%': '%',
+        '\\$': '$',
+        '\\#': '#',
+        '\\_': '_',
+        '\\{': '{',
+        '\\}': '}',
+        '~': ' ',
+        '``': '"',
+        "''": '"'
+    }
+    for latex, char in replacements.items():
+        text = text.replace(latex, char)
+    # Remove any remaining backslashes
+    text = text.replace('\\', '')
+    return text
 
 ############################################## FULL TEXT ACCESSOR TESTING #################################################
 # from Bio import Entrez
@@ -601,139 +469,11 @@ def download_pdf_excel(word, include_fulltexts):
         if title == 'TITLE':
             continue
 
-        search_query = str(title) + '[Title]'# AND ' + str(author_query) + '[Author]' # + ' AND medline[sb] AND "open access"[filter]'
-        search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-        time.sleep(1)
-        success = False
-
-        if int(search_results["Count"]) == 1: ## if searching only for title worked
-            success = True
-
-        elif int(search_results["Count"]) > 1: ## if too many queries popped up
-            search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author]' ## try searching with author
-            search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-            time.sleep(1)
-            if int(search_results["Count"]) > 1: ## searching with author did not work
-                for i in range(1, len(authors_list)):
-                    author_query = " OR "+ author_query
-                search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author]' ## try searching with authors
-                search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-                time.sleep(1)
-                if int(search_results["Count"]) > 1: ## searching with authors did not work
-                    search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author] AND medline[sb] AND "open access"[filter]' ## try searching with filters
-                    search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-                    time.sleep(1)
-                    if int(search_results["Count"]) > 1: ## searching with filter did not work
-                        success = False
-                    elif int(search_results["Count"]) == 1: ## searching with filters worked
-                        success = True
-
-        if success:
-            fulltext = get_full_text_from_search_results(search_results)
-            if fulltext is None:
-                fulltext = ""
-            print("came here")
-
-        ## Finding abstracts
-        if abstract == "" or abstract is None:
-            id_list = pubmed_search_ids(title)
-            if len(id_list) == 1: # checking to see if only one query came back
-                abstract = pubmed_get_abstracts(id_list[0])
-
-        ## Create article dictionary
-        article_dict = {
-            "pmid": pmid,
-            "title": title,
-            "authors": ", ".join(authors_list),
-            "abstract": abstract,
-            "full_text": fulltext,
-            "publication_date": date
-        }
+        article_dict = get_article_dict(metadata)
+        
         dict_list.append(article_dict)
         articles_found = articles_found + 1
-        # print(str(articles_found) + "/" + str(len(id_list)) + " articles found")
         print("Article " + str(pmid) + " found.")
-
-    print("Creating large pdf...")
-    create_large_pdf(dict_list, output_folder, word, include_fulltexts)
-    print("PDF created.")
-
-
-
-    for article in articles:
-        try:
-            title = article[0]
-            authors = article[1]
-            pmid = article[2]
-            date = article[3]
-            abstract = article[4]
-            authors_list = [line.strip() for line in authors.strip().split('\n\n')]
-            author_query = authors_list[0]
-            mesh = article[5]
-            keywords = article[6]
-            fulltext = ""
-
-            if title in titles:
-
-                if title == 'TITLE':
-                    continue
-
-                search_query = str(title) + '[Title]'# AND ' + str(author_query) + '[Author]' # + ' AND medline[sb] AND "open access"[filter]'
-                search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-                time.sleep(1)
-                success = False
-
-                if int(search_results["Count"]) == 1: ## if searching only for title worked
-                    success = True
-
-                elif int(search_results["Count"]) > 1: ## if too many queries popped up
-                    search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author]' ## try searching with author
-                    search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-                    time.sleep(1)
-                    if int(search_results["Count"]) > 1: ## searching with author did not work
-                        for i in range(1, len(authors_list)):
-                            author_query = " OR "+ author_query
-                        search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author]' ## try searching with authors
-                        search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-                        time.sleep(1)
-                        if int(search_results["Count"]) > 1: ## searching with authors did not work
-                            search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author] AND medline[sb] AND "open access"[filter]' ## try searching with filters
-                            search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-                            time.sleep(1)
-                            if int(search_results["Count"]) > 1: ## searching with filter did not work
-                                success = False
-                            elif int(search_results["Count"]) == 1: ## searching with filters worked
-                                success = True
-
-                if success:
-                    fulltext = get_full_text_from_search_results(search_results)
-                    if fulltext is None:
-                        fulltext = ""
-                    print("came here")
-
-                ## Finding abstracts
-                if abstract == "" or abstract is None:
-                    id_list = pubmed_search_ids(title)
-                    if len(id_list) == 1: # checking to see if only one query came back
-                        abstract = pubmed_get_abstracts(id_list[0])
-
-                ## Create article dictionary
-                article_dict = {
-                    "pmid": pmid,
-                    "title": title,
-                    "authors": ", ".join(authors_list),
-                    "abstract": abstract,
-                    "full_text": fulltext,
-                    "publication_date": date
-                } 
-
-                dict_list.append(article_dict)
-                articles_found = articles_found + 1
-                # print(str(articles_found) + "/" + str(len(id_list)) + " articles found")
-                print("Article " + str(pmid) + " found.")
-
-        except Exception as e:
-            print("Error: " + str(e))
 
     print("Creating large pdf...")
     create_large_pdf(dict_list, output_folder, word, include_fulltexts)
@@ -753,10 +493,11 @@ def download_pdf_not_excel(word, theme, include_fulltexts):
 
     articles_found = 0
 
-    ## getting the relevant PMIDs from json
+    ## getting the relevant article titles from json
     file = open('../data/dictionary.json')
     data = json.load(file)
 
+    ## checks if article is in excel sheet
     if word in data.keys():
         pmids = data[word.lower()]
         for article in articles:
@@ -771,63 +512,14 @@ def download_pdf_not_excel(word, theme, include_fulltexts):
                 mesh = article[5]
                 keywords = article[6]
                 fulltext = ""
+                metadata = [title, authors, pmid, date, abstract]
 
                 if pmid in pmids:
 
                     if title == 'TITLE':
                         continue
 
-                    search_query = str(title) + '[Title]'# AND ' + str(author_query) + '[Author]' # + ' AND medline[sb] AND "open access"[filter]'
-                    search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-                    time.sleep(1)
-                    success = False
-
-                    if int(search_results["Count"]) == 1: ## if searching only for title worked
-                        success = True
-
-                    elif int(search_results["Count"]) > 1: ## if too many queries popped up
-                        search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author]' ## try searching with author
-                        search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-                        time.sleep(1)
-                        if int(search_results["Count"]) > 1: ## searching with author did not work
-                            for i in range(1, len(authors_list)):
-                                author_query = " OR "+ author_query
-                            search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author]' ## try searching with authors
-                            search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-                            time.sleep(1)
-                            if int(search_results["Count"]) > 1: ## searching with authors did not work
-                                search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author] AND medline[sb] AND "open access"[filter]' ## try searching with filters
-                                search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-                                time.sleep(1)
-                                if int(search_results["Count"]) > 1: ## searching with filter did not work
-                                    success = False
-                                elif int(search_results["Count"]) == 1: ## searching with filters worked
-                                    success = True
-
-
-                    ## Finding abstracts
-                    if abstract == "" or abstract is None:
-                        id_list = pubmed_search_ids(title)
-                        if len(id_list) == 1: # checking to see if only one query came back
-                            abstract = pubmed_get_abstracts(id_list[0])
-
-                    if success:
-                        fulltext = get_full_text_from_search_results(search_results)
-                        if fulltext is None:
-                            fulltext = ""
-                        print("came here")
-
-                    print(fulltext)
-
-                    ## Create article dictionary
-                    article_dict = {
-                        "pmid": pmid,
-                        "title": title,
-                        "authors": ", ".join(authors_list),
-                        "abstract": abstract,
-                        "full_text": fulltext,
-                        "publication_date": date
-                    } 
+                    article_dict = get_article_dict(metadata)
 
                     dict_list.append(article_dict)
                     articles_found = articles_found + 1
@@ -836,6 +528,7 @@ def download_pdf_not_excel(word, theme, include_fulltexts):
             except Exception as e:
                 print("Error: " + str(e))
 
+    ## searches PMC for related articles
     id_list = pubmed_search_articles(word + " " + theme)
     for id in id_list:
         if len(dict_list) >= 10:
@@ -845,50 +538,9 @@ def download_pdf_not_excel(word, theme, include_fulltexts):
         title = metadata[0]
         authors = metadata[1]
         date = metadata[2]
+        metadata.append(abstract)
 
-        ##get fulltext here
-        search_query = str(title) + '[Title]'# AND ' + str(author_query) + '[Author]' # + ' AND medline[sb] AND "open access"[filter]'
-        search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-        time.sleep(1)
-        success = False
-
-        if int(search_results["Count"]) == 1: ## if searching only for title worked
-            success = True
-
-        elif int(search_results["Count"]) > 1: ## if too many queries popped up
-            search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author]' ## try searching with author
-            search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-            time.sleep(1)
-            if int(search_results["Count"]) > 1: ## searching with author did not work
-                for i in range(1, len(authors_list)):
-                    author_query = " OR "+ author_query
-                search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author]' ## try searching with authors
-                search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-                time.sleep(1)
-                if int(search_results["Count"]) > 1: ## searching with authors did not work
-                    search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author] AND medline[sb] AND "open access"[filter]' ## try searching with filters
-                    search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-                    time.sleep(1)
-                    if int(search_results["Count"]) > 1: ## searching with filter did not work
-                        success = False
-                    elif int(search_results["Count"]) == 1: ## searching with filters worked
-                        success = True
-
-            if success:
-                fulltext = get_full_text_from_search_results(search_results)
-                if fulltext is None:
-                    fulltext = ""
-                print("came here")
-
-        ## Create article dictionary
-        article_dict = {
-            "pmid": id,
-            "title": title,
-            "authors": ", ".join(authors),
-            "abstract": abstract,
-            "full_text": fulltext,
-            "publication_date": date
-        } 
+        article_dict = get_article_dict(metadata)
 
         dict_list.append(article_dict)
         articles_found = articles_found + 1
@@ -899,7 +551,35 @@ def download_pdf_not_excel(word, theme, include_fulltexts):
     create_large_pdf(dict_list, output_folder, word, include_fulltexts)
     print("PDF created.")
 
-##########################  MAIN CODE THAT RUNS THE DOWNLOADING PDFS  ################################
+######################## CODE USED FOR TESTING EXTRACTION OF FULLTEXTS #####################################
+
+def new_get_full_text(search_results):
+    batch_size = 100
+    for start in range(0, int(search_results["Count"]), batch_size):
+        end = min(int(search_results["Count"]), start + batch_size)
+        handle = Entrez.efetch(db="pmc", rettype="full", retmode="xml", 
+                            retstart=start, retmax=batch_size,
+                            webenv=search_results["WebEnv"], 
+                            query_key=search_results["QueryKey"])
+        data = handle.read()
+
+        def extract_xref_p_values(text):
+            # Create a BeautifulSoup object
+            soup = BeautifulSoup(text, 'xml')
+            
+            # Find all xref tags with ref-type="bibr"
+            ps = soup.find_all('p')
+            
+            # Extract the text content (p value) from each xref
+            p_values = [p.text for p in ps]
+            
+            return p_values
+
+
+        fulltext = extract_xref_p_values(data)
+        return fulltext
+
+##########################  MAIN CODE THAT RUNS THE DOWNLOADING PDFS (CASE HANDLING)  ################################
 
 # file = open('../data/dictionary.json')
 # data = json.load(file)
@@ -910,135 +590,132 @@ def download_pdf_not_excel(word, theme, include_fulltexts):
 #     ## NOT ENOUGH ARTICLES
 #     response = input("Not enough articles available in database. Fill the rest with other articles from PMC?\n")
 #     if response.lower() == 'yes' or response.lower() == 'y':
-#         download_pdf_not_excel(keyword, theme, True)
+#         download_pdf_not_excel(keyword, theme, False)
 #     else:
 #         print("Sorry, not enough PDFs.")
 # else:
-#     download_pdf_excel(keyword, True)
-    
-#######################################################################################################
+#     download_pdf_excel(keyword, False)
 
 
-# full_text = ""
-# search_query = 'Fibrin[Title]'# AND ' + str(author_query) + '[Author]' # + ' AND medline[sb] AND "open access"[filter]'
-# search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-# time.sleep(1)
-# batch_size = 1
-# for start in range(0, 1):#int(search_results["Count"]), batch_size):
-#     end = min(int(search_results["Count"]), start + batch_size)
-#     handle = Entrez.efetch(db="pmc", rettype="full", retmode="xml", 
-#                         retstart=start, retmax=batch_size,
-#                         webenv=search_results["WebEnv"], 
-#                         query_key=search_results["QueryKey"])
-#     data = handle.read()
-#     print("came here")
-#     soup = BeautifulSoup(data, features="xml")
-#     fulltexts = open("../data/fulltext_test.txt", "w")
-#     fulltexts.write(get_full_text_from_search_results(search_results))# + ",\n")
-#     fulltexts.close()
-#     body_soup = soup.find("body")
-#     p_soup = body_soup.find_all("p")
-#     for p in p_soup:
-#         full_text = full_text + p.text
-#     print(full_text)
-#     handle.close()
+##################### FUNCTION THAT GETS ARTICLE METADATA IN DICT FORMAT #########################################
 
+def get_article_dict(metadata):
+    title = metadata[0]
+    authors = metadata[1]
+    date = metadata[2]
+    pmid = metadata[3]
+    abstract = metadata[4]
+    if type(authors) is not list:
+        authors_list = [line.strip() for line in authors.strip().split('\n\n')]
+    else:
+        authors_list = authors
+    author_query = authors_list[0]
+    fulltext = ""
 
+    search_query = str(title) + '[Title]'# AND ' + str(author_query) + '[Author]' # + ' AND medline[sb] AND "open access"[filter]'
+    search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
+    time.sleep(1)
+    success = False
 
-# get_full_text_from_search_results(search_results)
+    if int(search_results["Count"]) == 1: ## if searching only for title worked
+        success = True
+
+    elif int(search_results["Count"]) > 1: ## if too many queries popped up
+        print("Too many searches: " + str(search_results["Count"]))
+        search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author]' ## try searching with author
+        search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
+        time.sleep(1)
+        if int(search_results["Count"]) > 1: ## searching with author did not work
+            print("Too many searches: " + str(search_results["Count"]))
+            for i in range(1, len(authors_list)):
+                author_query = " OR "+ author_query
+            search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author]' ## try searching with authors
+            search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
+            time.sleep(1)
+            if int(search_results["Count"]) > 1: ## searching with authors did not work
+                print("Still too many searches: " + str(str(search_results["Count"])))
+                search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author] AND medline[sb] AND "open access"[filter]' ## try searching with filters
+                search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
+                time.sleep(1)
+                if int(search_results["Count"]) > 1: ## searching with filter did not work
+                    print("Still too many searches: " + str(str(search_results["Count"])))
+                    search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author] AND medline[sb] AND "open access"[filter]' ## try searching with dates
+                    search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y", mindate = date, maxdate = date))
+                    time.sleep(1)
+                    if int(search_results["Count"]) > 1: ## searching with dates did not work
+                        success = False
+                    elif int(search_results["Count"]) == 1: ## searching with dates worked
+                        success = True
+                elif int(search_results["Count"]) == 1: ## searching with filters worked
+                    success = True 
+            elif int(search_results["Count"]) == 1: ## searching with authors worked
+                success = True 
+        elif int(search_results["Count"]) == 1: ## searching with author worked
+            success = True 
+    else:
+        print("Article not found")
+
+    if success:
+        fulltext = new_get_full_text(search_results)
+        print("Is Success")
+    else:
+        print("Full text not available")
+
+    ## Finding abstracts
+    if abstract == "" or abstract is None:
+        id_list = pubmed_search_ids(title)
+        if len(id_list) == 1: # checking to see if only one query came back
+            abstract = pubmed_get_abstracts(id_list[0])
+
+    ## Create article dictionary
+    article_dict = {
+        "pmid": pmid,
+        "title": title,
+        "authors": ", ".join(authors_list),
+        "abstract": abstract,
+        "full_text": str(fulltext),
+        "publication_date": date
+    }
+    return article_dict
+
+###########################################################################################################################
 
 output_folder = "..\\pdfs"
 word = "test"
+# title = "Management of chondral and osteochondral lesions of the hip : A comprehensive review"
+# authors = ["Rajesh Itha", "Raju Vaishya"]
+# pmid = "37815635"
+# date = "2023"
+# abstract = 'Chondral and osteochondral lesions encompass several acute or chronic defects of the articular cartilage and/or subchondral bone. These lesions can result from several different diseases and injuries, including osteochondritis dissecans, osteochondral defects, osteochondral fractures, subchondral bone osteonecrosis, and insufficiency fractures. As the cartilage has a low capacity for regeneration and self-repair, these lesions can progress to osteoarthritis. This study provides a comprehensive overview of the subject matter that it covers. PubMed, Scopus and Google Scholar were accessed using the following keywords: "chondral lesions/defects of the femoral head", "chondral/cartilage lesions/defects of the acetabulum", "chondral/cartilage lesions/defects of the hip", "osteochondral lesions of the femoral head", "osteochondral lesions of the acetabulum", "osteochondral lesions of the hip", "osteochondritis dissecans," "early osteoarthritis of the hip," and "early stage avascular necrosis". Hip osteochondral injuries can cause significant damage to the articular surface and diminish the quality of life. It can be difficult to treat such injuries, especially in patients who are young and active. Several methods are used to treat chondral and osteochondral injuries of the hip, such as mesenchymal stem cells and cell-based treatment, surgical repair, and microfractures. Realignment of bony anatomy may also be necessary for optimal outcomes. Despite several treatments being successful, there is a lack of head-to-head comparisons and large sample size studies in the current literature. Additional research will be required to provide appropriate clinical recommendations for treating chondral/osteochondral injuries of the hip joint.'
+# authors_list = ["Rajesh Itha", "Raju Vaishya"]
+# author_query = authors_list[0]
+# fulltext = ""
 
-title = "Fibrin glue does not assist migration and proliferation of chondrocytes in collagenic membranes: an in vitro study"
-authors = ["Filippo Migliorini", "Julia Prinz"]
-pmid = "34572476"
-date = "2021"
-abstract = "In this study, the influence of two subfractions (with previously proven anti-cancer properties) isolated from wood rot fungus Cerrena unicolor on the formation of a fibrin clot was investigated in the context of potential use as fibrin glue and sealant enhancers and potential wound healing agents. With the use of ROTEM thromboelastometry, we demonstrated that, in the presence of fibrinogen and thrombin, the S6 fraction accelerated the formation of a fibrin clot, had a positive effect on its elasticity modulus, and enhanced the degree of fibrin cross-linking. The S5 fraction alone showed no influence on the fibrin coagulation process; however, in the presence of fibrin, it exhibited a decrease in anti-proliferative properties against the HT-29 line, while it increased the proliferation of cells in general at a concentration of 100 µg/mL. Both fractions retained their proapoptotic properties to a lesser degree. In combination with the S6 fraction in the ratio of 1:1 and 1:3, the fractions contributed to increased inhibition of the activity of matrix metalloproteinases (MMPs). This may suggest anti-metastatic activity of the combined fractions. In conclusion, the potential of the fractions isolated from the C. unicolor secretome to be used as a means of improving the wound healing process was presented. The potential for delivering agents with cytostatic properties introduced far from the site of action or exerting a pro-proliferative effect at the wound site with the aid of a fibrin sealant was demonstrated."
-authors_list = ["Filippo Migliorini", "Julia Prinz"]
+# title = "Fibrin Sealants in Dura Sealing: A Systematic Literature Review"
+# authors = "Felice Esposito"
+# pmid = "27119993"
+# date = "2016"
+# abstract = 'Chondral and osteochondral lesions encompass several acute or chronic defects of the articular cartilage and/or subchondral bone. These lesions can result from several different diseases and injuries, including osteochondritis dissecans, osteochondral defects, osteochondral fractures, subchondral bone osteonecrosis, and insufficiency fractures. As the cartilage has a low capacity for regeneration and self-repair, these lesions can progress to osteoarthritis. This study provides a comprehensive overview of the subject matter that it covers. PubMed, Scopus and Google Scholar were accessed using the following keywords: "chondral lesions/defects of the femoral head", "chondral/cartilage lesions/defects of the acetabulum", "chondral/cartilage lesions/defects of the hip", "osteochondral lesions of the femoral head", "osteochondral lesions of the acetabulum", "osteochondral lesions of the hip", "osteochondritis dissecans," "early osteoarthritis of the hip," and "early stage avascular necrosis". Hip osteochondral injuries can cause significant damage to the articular surface and diminish the quality of life. It can be difficult to treat such injuries, especially in patients who are young and active. Several methods are used to treat chondral and osteochondral injuries of the hip, such as mesenchymal stem cells and cell-based treatment, surgical repair, and microfractures. Realignment of bony anatomy may also be necessary for optimal outcomes. Despite several treatments being successful, there is a lack of head-to-head comparisons and large sample size studies in the current literature. Additional research will be required to provide appropriate clinical recommendations for treating chondral/osteochondral injuries of the hip joint.'
+# authors_list = ["Felice Esposito"]
+# author_query = authors_list[0]
+# fulltext = ""
+
+title = "Endoscopic tissue shielding method with polyglycolic acid sheets and fibrin glue to cover wounds after colorectal endoscopic submucosal dissection (with video)"
+authors = "Tsuji Y."
+pmid = "603253584"
+date = "2014"
+abstract = 'Chondral and osteochondral lesions encompass several acute or chronic defects of the articular cartilage and/or subchondral bone. These lesions can result from several different diseases and injuries, including osteochondritis dissecans, osteochondral defects, osteochondral fractures, subchondral bone osteonecrosis, and insufficiency fractures. As the cartilage has a low capacity for regeneration and self-repair, these lesions can progress to osteoarthritis. This study provides a comprehensive overview of the subject matter that it covers. PubMed, Scopus and Google Scholar were accessed using the following keywords: "chondral lesions/defects of the femoral head", "chondral/cartilage lesions/defects of the acetabulum", "chondral/cartilage lesions/defects of the hip", "osteochondral lesions of the femoral head", "osteochondral lesions of the acetabulum", "osteochondral lesions of the hip", "osteochondritis dissecans," "early osteoarthritis of the hip," and "early stage avascular necrosis". Hip osteochondral injuries can cause significant damage to the articular surface and diminish the quality of life. It can be difficult to treat such injuries, especially in patients who are young and active. Several methods are used to treat chondral and osteochondral injuries of the hip, such as mesenchymal stem cells and cell-based treatment, surgical repair, and microfractures. Realignment of bony anatomy may also be necessary for optimal outcomes. Despite several treatments being successful, there is a lack of head-to-head comparisons and large sample size studies in the current literature. Additional research will be required to provide appropriate clinical recommendations for treating chondral/osteochondral injuries of the hip joint.'
+authors_list = ["Rajesh Itha", "Raju Vaishya"]
 author_query = authors_list[0]
 fulltext = ""
 
+# metadata = [title, authors, pmid, date, abstract]
+# article_dict = get_article_dict(metadata)
+# print(article_dict)
+
+# print("Creating large pdf...")
+# create_large_pdf([article_dict], output_folder, word, True)
+# print("PDF created.")
 
 
-search_query = str(title) + '[Title]'# AND ' + str(author_query) + '[Author]' # + ' AND medline[sb] AND "open access"[filter]'
-search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-time.sleep(1)
-success = False
-
-if int(search_results["Count"]) == 1: ## if searching only for title worked
-    success = True
-
-elif int(search_results["Count"]) > 1: ## if too many queries popped up
-    print("Too many searches: " + str(search_results["Count"]))
-    search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author]' ## try searching with author
-    search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-    time.sleep(1)
-    if int(search_results["Count"]) > 1: ## searching with author did not work
-        print("Too many searches: " + str(search_results["Count"]))
-        for i in range(1, len(authors_list)):
-            author_query = " OR "+ author_query
-        search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author]' ## try searching with authors
-        search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-        time.sleep(1)
-        if int(search_results["Count"]) > 1: ## searching with authors did not work
-            print("Still too many searches: " + str(str(search_results["Count"])))
-            search_query = str(title) + '[Title] AND ' + str(author_query) + '[Author] AND medline[sb] AND "open access"[filter]' ## try searching with filters
-            search_results = Entrez.read(Entrez.esearch(db="pmc", term=search_query, retmax=10, usehistory="y"))
-            time.sleep(1)
-            if int(search_results["Count"]) > 1: ## searching with filter did not work
-                success = False
-            elif int(search_results["Count"]) == 1: ## searching with filters worked
-                success = True
-            batch_size = 100
-            for start in range(0, int(search_results["Count"]), batch_size):
-                end = min(int(search_results["Count"]), start + batch_size)
-                handle = Entrez.efetch(db="pmc", rettype="full", retmode="xml", 
-                                    retstart=start, retmax=batch_size,
-                                    webenv=search_results["WebEnv"], 
-                                    query_key=search_results["QueryKey"])
-                data = handle.read()
-                def extract_xref_p_values(text):
-                    # Create a BeautifulSoup object
-                    soup = BeautifulSoup(text, 'xml')
-                    
-                    # Find all xref tags with ref-type="bibr"
-                    ps = soup.find_all('p')
-                    
-                    # Extract the text content (p value) from each xref
-                    p_values = [p.text for p in ps]
-                    
-                    return p_values
-
-                p_values = extract_xref_p_values(data)
-                print("Extracted 'p' values:", p_values)
-
-else:
-    print("Article not found")
-
-if success:
-    fulltext = get_full_text_from_search_results(search_results)
-    print("Is Success")
-
- ## Finding abstracts
-if abstract == "" or abstract is None:
-    id_list = pubmed_search_ids(title)
-    if len(id_list) == 1: # checking to see if only one query came back
-        abstract = pubmed_get_abstracts(id_list[0])
-
-## Create article dictionary
-article_dict = {
-    "pmid": pmid,
-    "title": title,
-    "authors": ", ".join(authors_list),
-    "abstract": abstract,
-    "full_text": fulltext,
-    "publication_date": date
-}
-
-
-print("Creating large pdf...")
-create_large_pdf([article_dict], output_folder, word, True)
-print("PDF created.")
-
-
+download_pdf_not_excel("doctor", "fibren glue", True)
